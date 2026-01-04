@@ -1,0 +1,18 @@
+{
+"short_name": "MCN Tracker",
+"name": "MCN Tracker",
+"icons": [
+{
+"src": "https://www.google.com/search?q=https://cdn-icons-png.flaticon.com/512/2301/2301145.png",
+"type": "image/png",
+"sizes": "512x512",
+"purpose": "any maskable"
+}
+],
+"start_url": "./index.html",
+"background_color": "#f8fafc",
+"display": "standalone",
+"scope": "./",
+"theme_color": "#4f46e5",
+"description": "Professional schedule and performance tracking system for MCN operators."
+}
