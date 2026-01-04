@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MCN Tracker</title>
     
     <!-- App Icons -->
@@ -67,10 +67,13 @@
         window.setDoc = setDoc;
         window.writeBatch = writeBatch;
         window.getDocs = getDocs;
+        
+        // Global App ID for Firestore paths (Rule 1)
+        window.APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     </script>
 
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body { font-family: 'Inter', sans-serif; overscroll-behavior-y: none; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
@@ -155,6 +158,7 @@
 
         const formatTime12h = (time24) => {
             if (!time24) return 'TBD';
+            // Ensure consistent parsing
             const [hours, minutes] = time24.split(':');
             const h = parseInt(hours, 10);
             const ampm = h >= 12 ? 'PM' : 'AM';
@@ -256,7 +260,7 @@
                             <h1 className="text-2xl font-bold text-white">MCN Tracker</h1>
                             <p className="text-indigo-100 mt-2 text-sm">Please sign in to continue</p>
                         </div>
-                        <form onSubmit={handleSubmit} className="p-8 space-y-6">
+                        <form onSubmit={handleSubmit} className="p-8 space-y-6" autoComplete="off">
                             {error && (
                                 <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg flex items-center gap-2 border border-red-100">
                                     <AlertCircleIcon className="w-4 h-4" />
@@ -267,14 +271,30 @@
                                 <label className="text-sm font-medium text-slate-700">Username</label>
                                 <div className="relative">
                                     <UserIcon className="w-5 h-5 text-slate-400 absolute left-3 top-2.5" />
-                                    <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" placeholder="Enter username" required />
+                                    <input 
+                                        type="text" 
+                                        value={username} 
+                                        onChange={(e) => setUsername(e.target.value)} 
+                                        className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" 
+                                        placeholder="Enter username" 
+                                        required 
+                                        autoComplete="username"
+                                    />
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-slate-700">Password</label>
                                 <div className="relative">
                                     <LockIcon className="w-5 h-5 text-slate-400 absolute left-3 top-2.5" />
-                                    <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-10 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" placeholder="Enter password" required />
+                                    <input 
+                                        type={showPassword ? "text" : "password"} 
+                                        value={password} 
+                                        onChange={(e) => setPassword(e.target.value)} 
+                                        className="w-full pl-10 pr-10 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all" 
+                                        placeholder="Enter password" 
+                                        required 
+                                        autoComplete="current-password"
+                                    />
                                     <button 
                                         type="button" 
                                         onClick={() => setShowPassword(!showPassword)} 
@@ -452,16 +472,31 @@
             );
         };
 
+        // ... (EventsView, ReportsView, ConfigSection, SettingsView components remain unchanged) ...
         const EventsView = ({ events, setEvents, deletedEvents, setDeletedEvents, users, currentUser, options }) => {
             const [isFormVisible, setIsFormVisible] = useState(false);
             const [viewFilter, setViewFilter] = useState('all'); // 'all' | 'month' | 'trash'
             const [editingId, setEditingId] = useState(null);
+            
+            // New State for Month/Year Filter
+            const currentPHDate = getPHDate();
+            const [filterMonth, setFilterMonth] = useState(currentPHDate.getMonth()); // 0-11
+            const [filterYear, setFilterYear] = useState(currentPHDate.getFullYear());
+
             const [formData, setFormData] = useState({
                 date: '', day: '', status: 'Pending', company: options.companies[0], platform: options.platforms[0], brand: '', creator: '', venue: options.venues[0], setup: options.setups[0], time: '', backup: '', inCharge: ''
             });
 
             const staffOptions = users.filter(u => STAFF_ROLES.includes(u.role));
             const isManager = ADMIN_ROLES.includes(currentUser.role);
+
+            // Month/Year Options for Dropdown
+            const months = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'
+            ];
+            const currentYear = new Date().getFullYear();
+            const years = [currentYear - 1, currentYear, currentYear + 1];
 
             // --- FIRESTORE ACTIONS ---
             // Move event to deletedEvents
@@ -511,11 +546,10 @@
                 if (viewFilter === 'trash') {
                     baseList = [...deletedEvents];
                 } else if (viewFilter === 'month') {
-                    const phDate = getPHDate();
-                    const year = phDate.getFullYear();
-                    const month = String(phDate.getMonth() + 1).padStart(2, '0');
-                    const currentMonthPrefix = `${year}-${month}`;
-                    baseList = events.filter(event => event.date.startsWith(currentMonthPrefix));
+                    // Filter by selected Month/Year
+                    const targetMonth = String(filterMonth + 1).padStart(2, '0');
+                    const targetPrefix = `${filterYear}-${targetMonth}`;
+                    baseList = events.filter(event => event.date.startsWith(targetPrefix));
                 } else {
                     baseList = [...events];
                 }
@@ -602,7 +636,7 @@
                         <h2 className="text-2xl font-bold text-slate-800">
                             {viewFilter === 'trash' ? 'Deleted Events (Bin)' : 'Event Management'}
                         </h2>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
                             <div className="flex bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
                                 <button onClick={() => setViewFilter('all')} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${viewFilter === 'all' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>All</button>
                                 <button onClick={() => setViewFilter('month')} className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${viewFilter === 'month' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}><CalendarIcon className="w-3.5 h-3.5" />Month</button>
@@ -610,6 +644,27 @@
                                     <button onClick={() => setViewFilter('trash')} className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${viewFilter === 'trash' ? 'bg-red-50 text-red-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}><Trash2Icon className="w-3.5 h-3.5" />Trash</button>
                                 )}
                             </div>
+
+                            {/* Month/Year Filter Controls - Only visible when 'Month' view is active */}
+                            {viewFilter === 'month' && (
+                                <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2">
+                                    <select 
+                                        value={filterMonth} 
+                                        onChange={(e) => setFilterMonth(Number(e.target.value))}
+                                        className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    >
+                                        {months.map((m, idx) => <option key={m} value={idx}>{m}</option>)}
+                                    </select>
+                                    <select 
+                                        value={filterYear} 
+                                        onChange={(e) => setFilterYear(Number(e.target.value))}
+                                        className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    >
+                                        {years.map(y => <option key={y} value={y}>{y}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
                             {viewFilter !== 'trash' && isManager && (
                                 <button onClick={() => { handleCloseForm(); setIsFormVisible(true); }} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm">{isFormVisible ? 'Close' : 'New'}<PlusIcon className={`w-4 h-4 transition-transform ${isFormVisible ? 'rotate-45' : ''}`} /></button>
                             )}
@@ -879,6 +934,34 @@
                      else pdfByPlatform[e.platform] = (pdfByPlatform[e.platform] || 0) + 1;
                 });
 
+                // STAFF STATS GENERATION
+                // The pdfEvents array is already filtered by the selected company in 'filteredEvents' logic above.
+                // So counting from pdfEvents automatically respects the company filter.
+                const staffRoles = ['Live Operator Lead', 'Live Operator Trainer', 'Live Operator'];
+                const staffStats = users
+                    .filter(u => staffRoles.includes(u.role))
+                    .map(u => {
+                        // Count assignments ONLY within the filtered pdfEvents
+                        const inChargeCount = pdfEvents.filter(e => e.inCharge === u.username).length;
+                        const backupCount = pdfEvents.filter(e => e.backup === u.username).length;
+                        return {
+                            name: u.fullname || u.nickname || u.username,
+                            role: u.role,
+                            inCharge: inChargeCount,
+                            backup: backupCount,
+                            total: inChargeCount + backupCount
+                        };
+                    })
+                    // Filter out staff with 0 activity in this specific report scope
+                    // Optional: remove .filter if you want to see 0s. Keeping it makes the report cleaner.
+                    .filter(s => s.total > 0)
+                    // Sort by Role Priority then Total Count Descending
+                    .sort((a, b) => {
+                        const roleOrder = { 'Live Operator Lead': 1, 'Live Operator Trainer': 2, 'Live Operator': 3 };
+                        if (roleOrder[a.role] !== roleOrder[b.role]) return roleOrder[a.role] - roleOrder[b.role];
+                        return b.total - a.total; // Highest activity first within role
+                    });
+
                 const element = document.createElement('div');
                 const reportTitle = `MCN Completed Report - ${months[selectedMonth]} ${selectedYear}`;
                 const filterScope = selectedCompany === 'All' ? 'ALL COMPANIES' : `${selectedCompany.toUpperCase()} ONLY`;
@@ -930,40 +1013,72 @@
                             ${generatePlatformStatsHTML()}
                         </div>
 
-                        <table style="width: 100%; border-collapse: collapse; border-spacing: 0; font-size: 9px; border: 1px solid #cbd5e1;">
-                            <thead>
-                                <tr style="background-color: #f1f5f9;">
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Date</th>
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Day</th>
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Company</th>
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Platform</th>
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Brand</th>
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Creator</th>
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Venue</th>
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Setup</th>
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Time</th>
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Backup</th>
-                                    <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Incharge</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${pdfEvents.map((e, index) => `
-                                    <tr style="background-color: ${index % 2 === 0 ? 'white' : '#f8fafc'};">
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${formatDateFull(e.date)}</td>
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.day}</td>
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;"><strong>${e.company}</strong></td>
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.platform}</td>
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.brand}</td>
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.creator || '-'}</td>
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.venue}</td>
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.setup}</td>
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${formatTime12h(e.time)}</td>
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${getStaffFullName(e.backup)}</td>
-                                        <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${getStaffFullName(e.inCharge)}</td>
+                        <div style="margin-bottom: 30px;">
+                            <h2 style="font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Event Schedule</h2>
+                            <table style="width: 100%; border-collapse: collapse; border-spacing: 0; font-size: 9px; border: 1px solid #cbd5e1;">
+                                <thead>
+                                    <tr style="background-color: #f1f5f9;">
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Date</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Day</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Company</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Platform</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Brand</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Creator</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Venue</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Setup</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Time</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Backup</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155;">Incharge</th>
                                     </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    ${pdfEvents.map((e, index) => `
+                                        <tr style="background-color: ${index % 2 === 0 ? 'white' : '#f8fafc'};">
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${formatDateFull(e.date)}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.day}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;"><strong>${e.company}</strong></td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.platform}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.brand}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.creator || '-'}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.venue}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${e.setup}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${formatTime12h(e.time)}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${getStaffFullName(e.backup)}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px;">${getStaffFullName(e.inCharge)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div style="page-break-inside: avoid;">
+                            <h2 style="font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Staff Performance Summary <span style="font-weight: 400; color: #64748b;">(Scope: ${filterScope})</span></h2>
+                            <table style="width: 100%; border-collapse: collapse; border-spacing: 0; font-size: 9px; border: 1px solid #cbd5e1;">
+                                <thead>
+                                    <tr style="background-color: #f1f5f9;">
+                                        <th style="border: 1px solid #cbd5e1; padding: 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155; width: 40%;">Operator Name</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 4px; font-weight: 700; text-transform: uppercase; text-align: left; color: #334155; width: 30%;">Role</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 4px; font-weight: 700; text-transform: uppercase; text-align: center; color: #334155; width: 10%;">In-Charge</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 4px; font-weight: 700; text-transform: uppercase; text-align: center; color: #334155; width: 10%;">Backup</th>
+                                        <th style="border: 1px solid #cbd5e1; padding: 4px; font-weight: 700; text-transform: uppercase; text-align: center; color: #334155; width: 10%;">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${staffStats.length > 0 ? staffStats.map((s, idx) => `
+                                        <tr style="background-color: ${idx % 2 === 0 ? 'white' : '#f8fafc'};">
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px; font-weight: 600;">${s.name}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px; color: #64748b;">${s.role}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px; text-align: center; font-weight: ${s.inCharge > 0 ? '700' : '400'}; color: ${s.inCharge > 0 ? '#0f172a' : '#94a3b8'};">${s.inCharge}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px; text-align: center; font-weight: ${s.backup > 0 ? '700' : '400'}; color: ${s.backup > 0 ? '#0f172a' : '#94a3b8'};">${s.backup}</td>
+                                            <td style="border: 1px solid #cbd5e1; padding: 3px 4px; text-align: center; font-weight: 700; color: #4f46e5;">${s.total}</td>
+                                        </tr>
+                                    `).join('') : `
+                                        <tr><td colspan="5" style="padding: 10px; text-align: center; color: #64748b; font-style: italic;">No staff activity recorded for this criteria.</td></tr>
+                                    `}
+                                </tbody>
+                            </table>
+                        </div>
+
                         <div style="margin-top: 30px; font-size: 9px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 10px;">
                             CONFIDENTIAL • Generated by MCN Tracker • Page 1 of 1
                         </div>
@@ -1145,12 +1260,20 @@
             const [errorMsg, setErrorMsg] = useState('');
             const fileInputRef = useRef(null);
             
+            // Password Visibility States
+            const [showProfilePass, setShowProfilePass] = useState(false);
+            const [showNewUserPass, setShowNewUserPass] = useState(false);
+            const [showEditUserPass, setShowEditUserPass] = useState(false);
+            const [visiblePasswords, setVisiblePasswords] = useState({}); // Map of user IDs to visibility boolean
+
             // Factory Reset Access: Supervisor, Lead, Trainer
             const canFactoryReset = ['Supervisor', 'Live Operator Lead', 'Live Operator Trainer'].includes(currentUser.role);
             
             // Modal State
             const [modalConfig, setModalConfig] = useState({ isOpen: false, type: '', data: null });
             
+            const APP_ID = window.APP_ID;
+
             // --- DATA MANAGEMENT HANDLERS ---
             const handleBackup = () => {
                 const data = {
@@ -1250,7 +1373,11 @@
 
             const closeModal = () => setModalConfig({ isOpen: false, type: '', data: null });
 
-            const handleStartEdit = () => { setProfileForm({ username: currentUser.username, password: currentUser.password, fullname: currentUser.fullname || '', nickname: currentUser.nickname || '' }); setIsEditing(true); };
+            const handleStartEdit = () => { 
+                setProfileForm({ username: currentUser.username, password: currentUser.password, fullname: currentUser.fullname || '', nickname: currentUser.nickname || '' }); 
+                setIsEditing(true); 
+                setShowProfilePass(false); // Reset visibility
+            };
             
             const handleUpdateProfile = async (e) => { 
                 e.preventDefault(); 
@@ -1280,12 +1407,16 @@
                     const usersRef = window.collection(window.firebaseDb, 'users');
                     await window.addDoc(usersRef, { ...newUser, createdAt: new Date().toISOString() });
                     setNewUser({ username: '', password: '', role: 'Live Operator', fullname: '', nickname: '' }); 
+                    setShowNewUserPass(false); // Reset visibility
                     setSuccessMsg('User created successfully!'); 
                 } catch(err) { console.error(err); }
                 setTimeout(() => setSuccessMsg(''), 3000); 
             };
 
-            const handleStartEditUser = (user) => setEditingUser({ ...user });
+            const handleStartEditUser = (user) => {
+                setEditingUser({ ...user });
+                setShowEditUserPass(false); // Reset visibility for edit form
+            };
             const handleCancelEditUser = () => setEditingUser(null);
             
             const handleSaveUserChanges = async (e) => { 
@@ -1301,6 +1432,13 @@
                     setSuccessMsg('User updated successfully!'); 
                 } catch(err) { console.error(err); }
                 setTimeout(() => setSuccessMsg(''), 3000); 
+            };
+
+            const toggleUserPasswordVisibility = (userId) => {
+                setVisiblePasswords(prev => ({
+                    ...prev,
+                    [userId]: !prev[userId]
+                }));
             };
 
             // -- Config Handlers --
@@ -1383,7 +1521,25 @@
                                                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label><input type="text" value={profileForm.fullname} onChange={(e) => setProfileForm({...profileForm, fullname: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm" /></div>
                                                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Nickname</label><input type="text" value={profileForm.nickname} onChange={(e) => setProfileForm({...profileForm, nickname: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm" /></div>
                                                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Username</label><input type="text" required value={profileForm.username} onChange={(e) => setProfileForm({...profileForm, username: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm" /></div>
-                                                <div><label className="block text-sm font-medium text-slate-700 mb-1">New Password</label><input type="text" required value={profileForm.password} onChange={(e) => setProfileForm({...profileForm, password: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm" /></div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-slate-700 mb-1">New Password</label>
+                                                    <div className="relative">
+                                                        <input 
+                                                            type={showProfilePass ? "text" : "password"} 
+                                                            required 
+                                                            value={profileForm.password} 
+                                                            onChange={(e) => setProfileForm({...profileForm, password: e.target.value})} 
+                                                            className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm pr-10" 
+                                                        />
+                                                        <button 
+                                                            type="button" 
+                                                            onClick={() => setShowProfilePass(!showProfilePass)} 
+                                                            className="absolute right-3 top-2.5 text-slate-400 hover:text-indigo-600 transition-colors"
+                                                        >
+                                                            {showProfilePass ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setIsEditing(false)} className="px-3 py-1.5 border border-slate-300 rounded-lg text-slate-600 text-sm hover:bg-slate-50">Cancel</button><button type="submit" className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">Save Changes</button></div>
                                         </form>
@@ -1488,7 +1644,25 @@
                                             <div><label className="block text-sm font-medium text-slate-700 mb-1">Nickname</label><input type="text" value={newUser.nickname} onChange={(e) => setNewUser({...newUser, nickname: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="Johnny" /></div>
                                             <div><label className="block text-sm font-medium text-slate-700 mb-1">Username</label><input type="text" required value={newUser.username} onChange={(e) => setNewUser({...newUser, username: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm" /></div>
                                             <div><label className="block text-sm font-medium text-slate-700 mb-1">Role</label><select value={newUser.role} onChange={(e) => setNewUser({...newUser, role: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm"><option value="Live Operator">Live Operator</option><option value="Live Operator Trainer">Live Operator Trainer</option><option value="Live Operator Lead">Live Operator Lead</option><option value="Supervisor">Supervisor</option></select></div>
-                                            <div className="col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1">Password</label><input type="password" required value={newUser.password} onChange={(e) => setNewUser({...newUser, password: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm" /></div>
+                                            <div className="col-span-2">
+                                                <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                                                <div className="relative">
+                                                    <input 
+                                                        type={showNewUserPass ? "text" : "password"} 
+                                                        required 
+                                                        value={newUser.password} 
+                                                        onChange={(e) => setNewUser({...newUser, password: e.target.value})} 
+                                                        className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm pr-10" 
+                                                    />
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => setShowNewUserPass(!showNewUserPass)} 
+                                                        className="absolute right-3 top-2.5 text-slate-400 hover:text-indigo-600 transition-colors"
+                                                    >
+                                                        {showNewUserPass ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </div>
                                         <div className="pt-2"><button type="submit" className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"><UserPlusIcon className="w-4 h-4" />Create Account</button></div>
                                     </form>
@@ -1505,7 +1679,25 @@
                                                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Full Name</label><input type="text" value={editingUser.fullname || ''} onChange={e => setEditingUser({...editingUser, fullname: e.target.value})} className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
                                                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Nickname</label><input type="text" value={editingUser.nickname || ''} onChange={e => setEditingUser({...editingUser, nickname: e.target.value})} className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
                                                             <div><label className="block text-xs font-medium text-slate-500 mb-1">Username</label><input type="text" value={editingUser.username} onChange={e => setEditingUser({...editingUser, username: e.target.value})} className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none" required /></div>
-                                                            <div><label className="block text-xs font-medium text-slate-500 mb-1">Password</label><input type="text" value={editingUser.password} onChange={e => setEditingUser({...editingUser, password: e.target.value})} className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none" required /></div>
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-slate-500 mb-1">Password</label>
+                                                                <div className="relative">
+                                                                    <input 
+                                                                        type={showEditUserPass ? "text" : "password"} 
+                                                                        value={editingUser.password} 
+                                                                        onChange={e => setEditingUser({...editingUser, password: e.target.value})} 
+                                                                        className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none pr-8" 
+                                                                        required 
+                                                                    />
+                                                                    <button 
+                                                                        type="button" 
+                                                                        onClick={() => setShowEditUserPass(!showEditUserPass)} 
+                                                                        className="absolute right-2 top-1.5 text-slate-400 hover:text-indigo-600 transition-colors"
+                                                                    >
+                                                                        {showEditUserPass ? <EyeOffIcon className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
                                                             <div className="col-span-2">
                                                                 <label className="block text-xs font-medium text-slate-500 mb-1">Role</label>
                                                                 <select value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value})} className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none"><option value="Live Operator">Live Operator</option><option value="Live Operator Trainer">Live Operator Trainer</option><option value="Live Operator Lead">Live Operator Lead</option><option value="Supervisor">Supervisor</option></select>
@@ -1515,7 +1707,30 @@
                                                     </form>
                                                 ) : (
                                                     <div className="flex items-center justify-between">
-                                                        <div className="flex items-center gap-3"><div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold text-xs">{(u.nickname || u.username)[0].toUpperCase()}</div><div><p className="text-sm font-medium text-slate-700">{u.nickname || u.username}</p><p className="text-xs text-slate-400">@{u.username} {u.fullname && `• ${u.fullname}`}</p></div></div>
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold text-xs">{(u.nickname || u.username)[0].toUpperCase()}</div>
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-700">{u.nickname || u.username}</p>
+                                                                <p className="text-xs text-slate-400">@{u.username} {u.fullname && `• ${u.fullname}`}</p>
+                                                                
+                                                                {/* Reveal Password Feature */}
+                                                                <div className="flex items-center gap-2 mt-1">
+                                                                    <button 
+                                                                        onClick={() => toggleUserPasswordVisibility(u.id)}
+                                                                        className="text-[10px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium bg-indigo-50 px-1.5 py-0.5 rounded transition-colors"
+                                                                        title="Show Password"
+                                                                    >
+                                                                        {visiblePasswords[u.id] ? <EyeOffIcon className="w-3 h-3" /> : <EyeIcon className="w-3 h-3" />}
+                                                                        {visiblePasswords[u.id] ? 'Hide Pass' : 'Show Pass'}
+                                                                    </button>
+                                                                    {visiblePasswords[u.id] && (
+                                                                        <span className="text-xs font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 select-all border border-slate-200">
+                                                                            {u.password}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                         <div className="flex items-center gap-3"><span className={`text-xs px-2 py-1 rounded border ${ADMIN_ROLES.includes(u.role) ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-slate-50 text-slate-600 border-slate-100'}`}>{u.role}</span><button onClick={() => handleStartEditUser(u)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors" title="Edit User"><Edit2Icon className="w-4 h-4" /></button></div>
                                                     </div>
                                                 )}
@@ -1549,6 +1764,41 @@
             const [deletedEvents, setDeletedEvents] = useState([]);
 
             const APP_ID = window.APP_ID;
+
+            // --- NAVIGATION LOGIC ---
+            useEffect(() => {
+                // Initialize history state on load if not set
+                if (!window.history.state) {
+                    window.history.replaceState({ view: 'dashboard' }, '');
+                }
+
+                const handlePopState = (event) => {
+                    if (event.state && event.state.view) {
+                        // If we have a state, switch to that tab
+                        setActiveTab(event.state.view);
+                    } else {
+                        // Fallback to dashboard if no state (or if user navigated back to initial load)
+                        setActiveTab('dashboard');
+                    }
+                };
+
+                window.addEventListener('popstate', handlePopState);
+                return () => window.removeEventListener('popstate', handlePopState);
+            }, []);
+
+            const navigateTo = (tabId) => {
+                setActiveTab(tabId);
+                if (tabId !== 'dashboard') {
+                    window.history.pushState({ view: tabId }, '', `#${tabId}`);
+                } else {
+                    // When going back to dashboard, we can either push or replace depending on desired UX.
+                    // Pushing ensures "Back" goes to previous tab, but users might expect "Back" from Dashboard to exit.
+                    // To mimic native "Back to exit from Dashboard", we should ensure dashboard is the bottom of stack.
+                    // But for simple SPA, pushing a new state for dashboard is fine, OR clearing forward history isn't possible.
+                    // Best practice for "Dashboard is root":
+                    window.history.pushState({ view: 'dashboard' }, '', '#dashboard');
+                }
+            };
 
             // 1. Init Auth - Required for Rules
             useEffect(() => {
@@ -1677,7 +1927,7 @@
                             </div>
                             <nav className="p-4 space-y-1 flex md:block overflow-x-auto md:overflow-visible">
                                 {navigationItems.map((item) => (
-                                    <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === item.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+                                    <button key={item.id} onClick={() => navigateTo(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === item.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>
                                         <item.icon className={`w-5 h-5 ${activeTab === item.id ? 'text-indigo-600' : 'text-slate-400'}`} />{item.label}
                                     </button>
                                 ))}
