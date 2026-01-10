@@ -5,16 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MCN Tracker</title>
     
-    <!-- App Icons -->
-    <link rel="icon" type="image/png" href="icon-512.png">
-    <link rel="apple-touch-icon" href="icon-512.png">
+    <!-- App Icons (Placeholders for this environment) -->
+    <!-- <link rel="icon" type="image/png" href="icon-512.png"> -->
+    <!-- <link rel="apple-touch-icon" href="icon-512.png"> -->
     
-    <!-- PWA Meta Tags -->
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#4f46e5">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -35,28 +29,22 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
         import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc, query, writeBatch, getDocs } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
-        // Your Firebase Configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyCDELpb8T2taP-MlxE2DEpSO1hK_N8cIa0",
-            authDomain: "mcntracker.firebaseapp.com",
-            projectId: "mcntracker",
-            storageBucket: "mcntracker.firebasestorage.app",
-            messagingSenderId: "720414862764",
-            appId: "1:720414862764:web:519670cff3a624d9f01e09",
-            measurementId: "G-Q0EJG9331J"
-        };
-
-        // Initialize Firebase
+        // Initialize Firebase with Environment Config
+        const firebaseConfig = JSON.parse(__firebase_config);
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
+        
+        // Global App ID for Firestore paths (Rule 1)
+        window.APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         // Expose Firebase services to the window object for use in the Babel script
         window.firebaseDb = db;
         window.firebaseAuth = auth;
         window.signInAnonymously = signInAnonymously;
+        window.signInWithCustomToken = signInWithCustomToken;
         window.onAuthStateChanged = onAuthStateChanged;
         window.collection = collection;
         window.addDoc = addDoc;
@@ -67,9 +55,7 @@
         window.setDoc = setDoc;
         window.writeBatch = writeBatch;
         window.getDocs = getDocs;
-        
-        // Global App ID for Firestore paths (Rule 1)
-        window.APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        window.query = query;
     </script>
 
     <style>
@@ -83,9 +69,13 @@
         .animate-in { animation: animateIn 0.3s ease-out forwards; }
         .fade-in { opacity: 0; animation-name: fadeIn; }
         .slide-in-from-bottom-4 { transform: translateY(1rem); animation-name: slideInBottom; }
+        .slide-in-from-left-2 { transform: translateX(-0.5rem); animation-name: slideInLeft; }
+        .slide-in-from-top-2 { transform: translateY(-0.5rem); animation-name: slideInTop; }
         
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideInBottom { from { transform: translateY(1rem); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes slideInLeft { from { transform: translateX(-0.5rem); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes slideInTop { from { transform: translateY(-0.5rem); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
@@ -93,15 +83,6 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
-
-        // --- SERVICE WORKER REGISTRATION (Conditional) ---
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js').catch(err => {
-                    console.log('ServiceWorker registration skipped (Preview Mode): ', err.message);
-                });
-            });
-        }
 
         // --- ICONS (Inline SVGs) ---
         const IconWrapper = ({ children, className }) => (
@@ -164,6 +145,12 @@
             const ampm = h >= 12 ? 'PM' : 'AM';
             const h12 = h % 12 || 12;
             return `${h12}:${minutes} ${ampm}`;
+        };
+
+        const ensureArray = (value) => {
+            if (Array.isArray(value)) return value;
+            if (typeof value === 'string' && value.trim() !== '') return [value];
+            return [];
         };
 
         const StatusBadge = ({ status }) => {
@@ -256,7 +243,6 @@
                 <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
                     <div className="bg-white w-full max-w-md rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
                         <div className="bg-indigo-600 px-8 py-8 text-center">
-                            <img src="icon-512.png" className="w-20 h-20 mx-auto mb-4 rounded-xl shadow-lg" alt="MCN Tracker" />
                             <h1 className="text-2xl font-bold text-white">MCN Tracker</h1>
                             <p className="text-indigo-100 mt-2 text-sm">Please sign in to continue</p>
                         </div>
@@ -326,17 +312,14 @@
             const monthDoneEvents = events.filter(e => e.date.startsWith(currentMonthPrefix) && e.status === 'Done');
 
             // Stats for current user assignments (Monthly & Done)
-            const icCount = monthDoneEvents.filter(e => e.inCharge === currentUser.username).length;
-            const backupCount = monthDoneEvents.filter(e => e.backup === currentUser.username).length;
+            // Helper to check assignment in array or string
+            const isAssigned = (field, username) => {
+                if (Array.isArray(field)) return field.includes(username);
+                return field === username;
+            };
 
-            // Leads and Trainers assignment tracking (Monthly & Done)
-            const leadUsernames = users.filter(u => u.role === 'Live Operator Lead').map(u => u.username);
-            const trainerUsernames = users.filter(u => u.role === 'Live Operator Trainer').map(u => u.username);
-
-            const leadsICCount = monthDoneEvents.filter(e => leadUsernames.includes(e.inCharge)).length;
-            const leadsBackupCount = monthDoneEvents.filter(e => leadUsernames.includes(e.backup)).length;
-            const trainersICCount = monthDoneEvents.filter(e => trainerUsernames.includes(e.inCharge)).length;
-            const trainersBackupCount = monthDoneEvents.filter(e => trainerUsernames.includes(e.backup)).length;
+            const icCount = monthDoneEvents.filter(e => isAssigned(e.inCharge, currentUser.username)).length;
+            const backupCount = monthDoneEvents.filter(e => isAssigned(e.backup, currentUser.username)).length;
 
             const todayStr = getPHDateString();
             const todayEvents = events.filter(e => e.date === todayStr);
@@ -351,13 +334,6 @@
             const personalStats = [
                 { label: 'Monthly Done In-Charge', value: icCount, icon: UserIcon, color: 'bg-blue-500' },
                 { label: 'Monthly Done Backup', value: backupCount, icon: UsersIcon, color: 'bg-purple-500' },
-            ];
-
-            const adminStats = [
-                { label: 'Leads Done IC (Month)', value: leadsICCount, icon: ShieldIcon, color: 'bg-rose-500' },
-                { label: 'Leads Done Backup (Month)', value: leadsBackupCount, icon: ShieldIcon, color: 'bg-pink-500' },
-                { label: 'Trainers Done IC (Month)', value: trainersICCount, icon: TrendingUpIcon, color: 'bg-cyan-500' },
-                { label: 'Trainers Done Backup (Month)', value: trainersBackupCount, icon: TrendingUpIcon, color: 'bg-teal-500' },
             ];
 
             return (
@@ -401,26 +377,6 @@
                             </div>
                         ))}
                     </div>
-
-                    {/* Leads & Trainers Monthly Summary (Admin Only) */}
-                    {ADMIN_ROLES.includes(currentUser.role) && (
-                        <>
-                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mt-8">Lead & Trainer Load Summary (Done Tasks - {currentMonthName})</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                                {adminStats.map((stat) => (
-                                    <div key={stat.label} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-                                        <div>
-                                            <p className="text-xs font-medium text-slate-500">{stat.label}</p>
-                                            <p className="text-2xl font-bold text-slate-900 mt-1">{stat.value}</p>
-                                        </div>
-                                        <div className={`p-2 rounded-lg ${stat.color} bg-opacity-10`}>
-                                            <stat.icon className={`w-5 h-5 ${stat.color.replace('bg-', 'text-')}`} />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </>
-                    )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
                         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
@@ -472,7 +428,6 @@
             );
         };
 
-        // ... (EventsView, ReportsView, ConfigSection, SettingsView components remain unchanged) ...
         const EventsView = ({ events, setEvents, deletedEvents, setDeletedEvents, users, currentUser, options }) => {
             const [isFormVisible, setIsFormVisible] = useState(false);
             const [viewFilter, setViewFilter] = useState('all'); // 'all' | 'month' | 'trash'
@@ -484,7 +439,7 @@
             const [filterYear, setFilterYear] = useState(currentPHDate.getFullYear());
 
             const [formData, setFormData] = useState({
-                date: '', day: '', status: 'Pending', company: options.companies[0], platform: options.platforms[0], brand: '', creator: '', venue: options.venues[0], setup: options.setups[0], time: '', backup: '', inCharge: ''
+                date: '', day: '', status: 'Pending', company: options.companies[0], platform: options.platforms[0], brand: '', creator: '', venue: options.venues[0], setup: options.setups[0], time: '', backup: [], inCharge: []
             });
 
             const staffOptions = users.filter(u => STAFF_ROLES.includes(u.role));
@@ -506,8 +461,8 @@
                 if (eventToDelete) {
                     try {
                         const batch = window.writeBatch(window.firebaseDb);
-                        const delRef = window.doc(window.firebaseDb, 'deleted_events', id);
-                        const eventRef = window.doc(window.firebaseDb, 'events', id);
+                        const delRef = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'deleted_events', id);
+                        const eventRef = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'events', id);
                         
                         batch.set(delRef, eventToDelete); // Add to deleted
                         batch.delete(eventRef); // Remove from active
@@ -522,8 +477,8 @@
                 if (eventToRestore) {
                     try {
                         const batch = window.writeBatch(window.firebaseDb);
-                        const eventRef = window.doc(window.firebaseDb, 'events', id);
-                        const delRef = window.doc(window.firebaseDb, 'deleted_events', id);
+                        const eventRef = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'events', id);
+                        const delRef = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'deleted_events', id);
 
                         batch.set(eventRef, eventToRestore);
                         batch.delete(delRef);
@@ -536,7 +491,7 @@
             const handlePermanentDelete = async (id) => {
                 if (confirm("Are you sure? This cannot be undone.")) {
                     try {
-                        await window.deleteDoc(window.doc(window.firebaseDb, 'deleted_events', id));
+                        await window.deleteDoc(window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'deleted_events', id));
                     } catch (e) { console.error("Error permanent delete:", e); }
                 }
             };
@@ -579,9 +534,35 @@
                 setFormData(prev => ({ ...prev, [name]: value }));
             };
 
+            // Handle adding a user to multi-select field
+            const handleAddUser = (field, username) => {
+                if (!username) return;
+                setFormData(prev => {
+                    const currentList = ensureArray(prev[field]);
+                    if (!currentList.includes(username)) {
+                        return { ...prev, [field]: [...currentList, username] };
+                    }
+                    return prev;
+                });
+            };
+
+            // Handle removing a user from multi-select field
+            const handleRemoveUser = (field, username) => {
+                setFormData(prev => ({
+                    ...prev,
+                    [field]: ensureArray(prev[field]).filter(u => u !== username)
+                }));
+            };
+
             const handleEditClick = (event) => {
                 if (!isManager) return;
-                setFormData(event);
+                // Ensure backup/inCharge are arrays for the form state
+                const cleanEvent = {
+                    ...event,
+                    backup: ensureArray(event.backup),
+                    inCharge: ensureArray(event.inCharge)
+                };
+                setFormData(cleanEvent);
                 setEditingId(event.id);
                 setIsFormVisible(true);
             };
@@ -589,7 +570,7 @@
             const handleCloseForm = () => {
                 setIsFormVisible(false);
                 setEditingId(null);
-                setFormData({ date: '', day: '', status: 'Pending', company: options.companies[0], platform: options.platforms[0], brand: '', creator: '', venue: options.venues[0], setup: options.setups[0], time: '', backup: '', inCharge: '' });
+                setFormData({ date: '', day: '', status: 'Pending', company: options.companies[0], platform: options.platforms[0], brand: '', creator: '', venue: options.venues[0], setup: options.setups[0], time: '', backup: [], inCharge: [] });
             };
 
             const handleSubmit = async (e) => {
@@ -597,10 +578,10 @@
                 if (!formData.brand || !formData.date || !isManager) return;
                 
                 try {
-                    const eventsRef = window.collection(window.firebaseDb, 'events');
+                    const eventsRef = window.collection(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'events');
                     if (editingId) {
                         // Update
-                        const eventDoc = window.doc(window.firebaseDb, 'events', editingId);
+                        const eventDoc = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'events', editingId);
                         await window.updateDoc(eventDoc, formData);
                     } else {
                         // Create
@@ -615,7 +596,7 @@
             const handleMarkDone = async (id) => {
                 if (!isManager) return;
                 try {
-                    const eventDoc = window.doc(window.firebaseDb, 'events', id);
+                    const eventDoc = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'events', id);
                     await window.updateDoc(eventDoc, { status: 'Done' });
                 } catch(err) { console.error(err); }
             };
@@ -627,8 +608,35 @@
             };
 
             const isUserAssigned = (event) => {
-                return event.inCharge === currentUser.username || event.backup === currentUser.username;
+                const check = (field) => {
+                    if (Array.isArray(field)) return field.includes(currentUser.username);
+                    return field === currentUser.username;
+                };
+                return check(event.inCharge) || check(event.backup);
             };
+
+            const MultiUserSelect = ({ label, field, values, options }) => (
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
+                    <div className="flex flex-wrap gap-2 mb-2 min-h-[28px]">
+                        {values.map(u => (
+                            <span key={u} className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-medium border border-indigo-100">
+                                {u}
+                                <button type="button" onClick={() => handleRemoveUser(field, u)} className="hover:text-red-500"><XIcon className="w-3 h-3" /></button>
+                            </span>
+                        ))}
+                    </div>
+                    <select 
+                        onChange={(e) => { handleAddUser(field, e.target.value); e.target.value = ''; }} 
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                    >
+                        <option value="">Add Staff...</option>
+                        {options.filter(u => !values.includes(u.username)).map(u => (
+                            <option key={u.id} value={u.username}>{u.nickname || u.fullname || u.username} ({u.role})</option>
+                        ))}
+                    </select>
+                </div>
+            );
 
             return (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -724,8 +732,8 @@
                                             </div>
                                         </div>
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div><label className="block text-sm font-medium text-slate-700 mb-1">Backup Ops</label><select name="backup" value={formData.backup} onChange={handleInputChange} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"><option value="">Select Staff</option>{staffOptions.map(u => (<option key={u.id} value={u.username}>{u.nickname || u.fullname || u.username} ({u.role})</option>))}</select></div>
-                                            <div><label className="block text-sm font-medium text-slate-700 mb-1">In-Charge</label><select name="inCharge" value={formData.inCharge} onChange={handleInputChange} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"><option value="">Select Staff</option>{staffOptions.map(u => (<option key={u.id} value={u.username}>{u.nickname || u.fullname || u.username} ({u.role})</option>))}</select></div>
+                                            <MultiUserSelect label="Backup Ops" field="backup" values={formData.backup} options={staffOptions} />
+                                            <MultiUserSelect label="In-Charge" field="inCharge" values={formData.inCharge} options={staffOptions} />
                                         </div>
                                     </div>
                                 </div>
@@ -750,6 +758,8 @@
                                 const reviewNeeded = isPastDue(event.date) && event.status !== 'Done' && event.status !== 'Cancelled';
                                 const isTrash = viewFilter === 'trash';
                                 const assigned = isUserAssigned(event);
+                                const inChargeList = ensureArray(event.inCharge);
+                                const backupList = ensureArray(event.backup);
                                 
                                 return (
                                     <div key={event.id} className={`group px-6 py-4 transition-colors ${reviewNeeded && !isTrash ? 'bg-amber-50/50' : 'hover:bg-slate-50'} ${assigned ? 'bg-indigo-100/60' : ''}`}>
@@ -820,11 +830,11 @@
                                                         <UsersIcon className="w-4 h-4 cursor-help text-slate-400" />
                                                         <div className="absolute bottom-full right-0 mb-2 w-48 bg-slate-800 text-white text-xs rounded p-2 opacity-0 group-hover/staff:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
                                                             <div className="font-semibold border-b border-slate-700 mb-1 pb-1">Staff Assigned</div>
-                                                            <div className={`flex justify-between ${event.inCharge === currentUser.username ? 'text-indigo-300 font-bold' : ''}`}>
-                                                                <span className="text-slate-400">In-Charge:</span><span>{event.inCharge || '-'}</span>
+                                                            <div className={`flex justify-between ${inChargeList.includes(currentUser.username) ? 'text-indigo-300 font-bold' : ''}`}>
+                                                                <span className="text-slate-400">In-Charge:</span><span>{inChargeList.join(', ') || '-'}</span>
                                                             </div>
-                                                            <div className={`flex justify-between ${event.backup === currentUser.username ? 'text-indigo-300 font-bold' : ''}`}>
-                                                                <span className="text-slate-400">Backup:</span><span>{event.backup || '-'}</span>
+                                                            <div className={`flex justify-between ${backupList.includes(currentUser.username) ? 'text-indigo-300 font-bold' : ''}`}>
+                                                                <span className="text-slate-400">Backup:</span><span>{backupList.join(', ') || '-'}</span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -938,12 +948,22 @@
                 // The pdfEvents array is already filtered by the selected company in 'filteredEvents' logic above.
                 // So counting from pdfEvents automatically respects the company filter.
                 const staffRoles = ['Live Operator Lead', 'Live Operator Trainer', 'Live Operator'];
+                
+                // Helper to count occurrences in arrays or strings
+                const countRole = (events, field, username) => {
+                    return events.filter(e => {
+                        const val = e[field];
+                        if (Array.isArray(val)) return val.includes(username);
+                        return val === username;
+                    }).length;
+                };
+
                 const staffStats = users
                     .filter(u => staffRoles.includes(u.role))
                     .map(u => {
                         // Count assignments ONLY within the filtered pdfEvents
-                        const inChargeCount = pdfEvents.filter(e => e.inCharge === u.username).length;
-                        const backupCount = pdfEvents.filter(e => e.backup === u.username).length;
+                        const inChargeCount = countRole(pdfEvents, 'inCharge', u.username);
+                        const backupCount = countRole(pdfEvents, 'backup', u.username);
                         return {
                             name: u.fullname || u.nickname || u.username,
                             role: u.role,
@@ -968,10 +988,15 @@
                 const contextSubtitle = `Period: ${months[selectedMonth]} ${selectedYear}`;
                 const generatedDate = new Date().toLocaleDateString();
 
-                const getStaffFullName = (username) => {
-                    if (!username) return '-';
-                    const user = users.find(u => u.username === username);
-                    return user ? (user.fullname || user.nickname || user.username) : username;
+                const getStaffFullName = (userList) => {
+                    if (!userList) return '-';
+                    const list = Array.isArray(userList) ? userList : [userList];
+                    if (list.length === 0) return '-';
+                    
+                    return list.map(username => {
+                         const user = users.find(u => u.username === username);
+                         return user ? (user.fullname || user.nickname || user.username) : username;
+                    }).join(', ');
                 };
 
                 const formatDateFull = (dateStr) => {
@@ -1340,14 +1365,14 @@
                     // we will merge/overwrite. In a real app, you might want to wipe collections.
                     
                     data.events.forEach(ev => {
-                        const ref = window.doc(window.firebaseDb, 'events', ev.id.toString());
+                        const ref = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'events', ev.id.toString());
                         batch.set(ref, ev);
                     });
                     
                     // Restore Users
                      data.users.forEach(u => {
                         // User IDs might be numeric from old system, convert to string
-                        const ref = window.doc(window.firebaseDb, 'users', u.id.toString());
+                        const ref = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'users', u.id.toString());
                         batch.set(ref, u);
                     });
 
@@ -1359,7 +1384,7 @@
                    // For now, we will just reload which clears local state, but DB remains.
                    // To truly wipe, we'd need to fetch all docs and delete them.
                    // Let's implement a basic wipe for Events.
-                   const q = window.query(window.collection(window.firebaseDb, 'events'));
+                   const q = window.query(window.collection(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'events'));
                    const snap = await window.getDocs(q);
                    const batch = window.writeBatch(window.firebaseDb);
                    snap.forEach(d => batch.delete(d.ref));
@@ -1385,7 +1410,7 @@
                 if (profileForm.username !== currentUser.username && users.some(u => u.username === profileForm.username)) { alert('Username already taken'); return; } 
                 
                 try {
-                    const userRef = window.doc(window.firebaseDb, 'users', currentUser.id);
+                    const userRef = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'users', currentUser.id);
                     await window.updateDoc(userRef, { 
                         username: profileForm.username, 
                         password: profileForm.password, 
@@ -1404,7 +1429,7 @@
                 if (users.find(u => u.username === newUser.username)) { alert('Username already exists'); return; } 
                 
                 try {
-                    const usersRef = window.collection(window.firebaseDb, 'users');
+                    const usersRef = window.collection(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'users');
                     await window.addDoc(usersRef, { ...newUser, createdAt: new Date().toISOString() });
                     setNewUser({ username: '', password: '', role: 'Live Operator', fullname: '', nickname: '' }); 
                     setShowNewUserPass(false); // Reset visibility
@@ -1426,7 +1451,7 @@
                 if (editingUser.username !== originalUser.username && users.some(u => u.username === editingUser.username)) { alert('Username already taken'); return; } 
                 
                 try {
-                    const userRef = window.doc(window.firebaseDb, 'users', editingUser.id);
+                    const userRef = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'users', editingUser.id);
                     await window.updateDoc(userRef, editingUser);
                     setEditingUser(null); 
                     setSuccessMsg('User updated successfully!'); 
@@ -1445,14 +1470,14 @@
             const addToOption = async (category, item) => {
                 const newOptions = { ...options, [category]: [...options[category], item] };
                 try {
-                    const configRef = window.doc(window.firebaseDb, 'configuration', 'global_options');
+                    const configRef = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'configuration', 'global_options');
                     await window.setDoc(configRef, newOptions);
                 } catch(err) { console.error(err); }
             };
             const deleteFromOption = async (category, item) => {
                 const newOptions = { ...options, [category]: options[category].filter(i => i !== item) };
                 try {
-                    const configRef = window.doc(window.firebaseDb, 'configuration', 'global_options');
+                    const configRef = window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'configuration', 'global_options');
                     await window.setDoc(configRef, newOptions);
                 } catch(err) { console.error(err); }
             };
@@ -1804,7 +1829,11 @@
             useEffect(() => {
                 const initAuth = async () => {
                     try {
-                        await window.signInAnonymously(window.firebaseAuth);
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await window.signInWithCustomToken(window.firebaseAuth, __initial_auth_token);
+                        } else {
+                            await window.signInAnonymously(window.firebaseAuth);
+                        }
                         console.log("Firebase Auth Success");
                     } catch(e) {
                         console.error("Firebase Auth Failed", e);
@@ -1829,7 +1858,7 @@
                 };
 
                 // Listen to Events
-                const eventsRef = window.collection(window.firebaseDb, 'events');
+                const eventsRef = window.collection(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'events');
                 const unsubEvents = window.onSnapshot(eventsRef, (snap) => {
                     const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
                     setEvents(data);
@@ -1837,7 +1866,7 @@
                 }, (error) => handleError(error, "Events"));
 
                 // Listen to Users
-                const usersRef = window.collection(window.firebaseDb, 'users');
+                const usersRef = window.collection(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'users');
                 const unsubUsers = window.onSnapshot(usersRef, (snap) => {
                     const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
                     if (data.length === 0) {
@@ -1856,21 +1885,21 @@
                 }, (error) => handleError(error, "Users"));
 
                 // Listen to Deleted Events
-                const delRef = window.collection(window.firebaseDb, 'deleted_events');
+                const delRef = window.collection(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'deleted_events');
                 const unsubDel = window.onSnapshot(delRef, (snap) => {
                     const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
                     setDeletedEvents(data);
                 }, (error) => handleError(error, "Deleted Events"));
 
                 // Listen to Config
-                const configRef = window.collection(window.firebaseDb, 'configuration');
+                const configRef = window.collection(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'configuration');
                 const unsubConfig = window.onSnapshot(configRef, (snap) => {
                     const optionsDoc = snap.docs.find(d => d.id === 'global_options');
                     if (optionsDoc) {
                         setOptions(optionsDoc.data());
                     } else {
                         // Create default config if missing, handle errors gracefully
-                        window.setDoc(window.doc(window.firebaseDb, 'configuration', 'global_options'), DEFAULT_OPTIONS)
+                        window.setDoc(window.doc(window.firebaseDb, 'artifacts', window.APP_ID, 'public', 'data', 'configuration', 'global_options'), DEFAULT_OPTIONS)
                             .catch(e => console.warn("Config creation failed:", e));
                     }
                 }, (error) => handleError(error, "Config"));
@@ -1921,7 +1950,7 @@
                             <div className="p-6 border-b border-slate-100">
                                 <div className="flex items-center gap-2">
                                     {/* Sidebar Logo */}
-                                    <img src="icon-512.png" className="w-10 h-10 rounded-lg" alt="Logo" />
+                                    <img src="icon-512.png" className="w-10 h-10 rounded-lg" alt="Logo" onError={(e) => { e.target.style.display = 'none'; }} />
                                     <div><h1 className="text-xl font-bold text-slate-900 leading-none">MCN</h1><p className="text-xs text-slate-500 mt-1">Tracker</p></div>
                                 </div>
                             </div>
